@@ -25,6 +25,8 @@ class BudgetBot:
             # Padroniza as colunas de modelo e serviço para facilitar a busca
             tabela["Modelo"] = tabela["Modelo"].str.lower().str.strip()
             tabela["Servico"] = tabela["Servico"].str.lower().str.strip()
+            if "TipoAro" in tabela.columns:
+                tabela["TipoAro"] = tabela["TipoAro"].str.lower().str.strip()
             return tabela
         except FileNotFoundError:
             print(f"ERRO: O arquivo '{self.excel_file}' não foi encontrado.")
@@ -33,17 +35,22 @@ class BudgetBot:
             print(f"ERRO ao carregar a tabela: {e}")
             exit(1)
 
-    def buscar_preco(self, modelo, servico):
+    def buscar_preco(self, modelo, servico, tipo_aro=None):
         # A tabela já está padronizada, então não precisamos fazer .lower().strip() aqui novamente
-        resultado = self.tabela[
-            (self.tabela["Modelo"] == modelo) &
-            (self.tabela["Servico"] == servico)
-        ]
+        filtro = (self.tabela["Modelo"] == modelo) & (self.tabela["Servico"] == servico)
+        
+        # Se tipo_aro foi especificado, adiciona ao filtro
+        if tipo_aro and "TipoAro" in self.tabela.columns:
+            filtro = filtro & (self.tabela["TipoAro"] == tipo_aro.lower().strip())
+        
+        resultado = self.tabela[filtro]
+        
         if not resultado.empty:
             preco_vista = resultado.iloc[0]["PrecoVista"]
             preco_cartao = resultado.iloc[0]["PrecoCartao"]
+            tipo_aro_str = f" ({tipo_aro})" if tipo_aro else ""
             return (
-                f"✅ {servico.title()} do {modelo.title()}:\n"
+                f"✅ {servico.title()} do {modelo.title()}{tipo_aro_str}:\n"
                 f"💵 À vista: R$ {preco_vista:.2f}\n"
                 f"💳 Cartão: R$ {preco_cartao:.2f}"
             )
@@ -62,8 +69,6 @@ class BudgetBot:
                 break
         
         # Busca por serviços (apenas se um modelo foi encontrado ou se for uma busca geral)
-        # Se um modelo foi encontrado, podemos querer oferecer serviços para ele.
-        # Se nenhum modelo for encontrado, ainda podemos interpretar um serviço se for uma consulta autônoma.
         if modelo_encontrado:
             # Busca serviços específicos para o modelo encontrado
             servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo_encontrado]["Servico"].unique().tolist()
@@ -80,6 +85,29 @@ class BudgetBot:
 
         return modelo_encontrado, servico_encontrado
 
+    def verificar_necessidade_aro(self, modelo, servico):
+        """
+        Verifica se o serviço 'tela' tem AMBAS as variações (com aro E sem aro) cadastradas.
+        Só retorna True se houver exatamente 2 tipos de aro diferentes.
+        """
+        if servico != "tela":
+            return False
+        
+        if "TipoAro" not in self.tabela.columns:
+            return False
+        
+        # Busca todos os tipos de aro para este modelo/serviço
+        tipos_aro = self.tabela[
+            (self.tabela["Modelo"] == modelo) & 
+            (self.tabela["Servico"] == servico)
+        ]["TipoAro"].unique().tolist()
+        
+        # Só pergunta se houver AMBAS as opções (com aro e sem aro)
+        tem_com_aro = any("com aro" in aro for aro in tipos_aro)
+        tem_sem_aro = any("sem aro" in aro for aro in tipos_aro)
+        
+        return tem_com_aro and tem_sem_aro
+
     async def preco_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_args = " ".join(context.args)
         if not texto_args:
@@ -91,8 +119,25 @@ class BudgetBot:
         modelo, servico = self.interpretar_texto(texto_args)
 
         if modelo and servico:
-            resposta = self.buscar_preco(modelo, servico)
-            await update.message.reply_text(resposta)
+            # Se é tela, verifica se precisa perguntar sobre aro
+            if self.verificar_necessidade_aro(modelo, servico):
+                tipos_aro = self.tabela[
+                    (self.tabela["Modelo"] == modelo) & 
+                    (self.tabela["Servico"] == servico)
+                ]["TipoAro"].unique().tolist()
+                
+                keyboard = [
+                    [InlineKeyboardButton(aro.title(), callback_data=f"{modelo}|{servico}|{aro}")]
+                    for aro in tipos_aro
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    f"Com aro ou sem aro?",
+                    reply_markup=reply_markup
+                )
+            else:
+                resposta = self.buscar_preco(modelo, servico)
+                await update.message.reply_text(resposta)
         elif modelo and not servico:
             # Se apenas o modelo foi encontrado, oferece os serviços como botões
             servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo]["Servico"].unique().tolist()
@@ -123,8 +168,25 @@ class BudgetBot:
         modelo, servico = self.interpretar_texto(texto)
 
         if modelo and servico:
-            resposta = self.buscar_preco(modelo, servico)
-            await update.message.reply_text(resposta)
+            # Se é tela, verifica se precisa perguntar sobre aro
+            if self.verificar_necessidade_aro(modelo, servico):
+                tipos_aro = self.tabela[
+                    (self.tabela["Modelo"] == modelo) & 
+                    (self.tabela["Servico"] == servico)
+                ]["TipoAro"].unique().tolist()
+                
+                keyboard = [
+                    [InlineKeyboardButton(aro.title(), callback_data=f"{modelo}|{servico}|{aro}")]
+                    for aro in tipos_aro
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    f"Com aro ou sem aro?",
+                    reply_markup=reply_markup
+                )
+            else:
+                resposta = self.buscar_preco(modelo, servico)
+                await update.message.reply_text(resposta)
         elif modelo and not servico:
             # Se apenas o modelo foi encontrado, oferece os serviços como botões
             servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo]["Servico"].unique().tolist()
@@ -149,11 +211,40 @@ class BudgetBot:
         await query.answer() # Responde ao callback para remover o estado de 'carregando' do botão
 
         data = query.data.split('|')
-        modelo = data[0]
-        servico = data[1]
-
-        resposta = self.buscar_preco(modelo, servico)
-        await query.edit_message_text(text=resposta)
+        
+        if len(data) == 2:
+            # Callback de serviço (modelo|serviço)
+            modelo = data[0]
+            servico = data[1]
+            
+            # Verifica se precisa perguntar sobre aro
+            if self.verificar_necessidade_aro(modelo, servico):
+                tipos_aro = self.tabela[
+                    (self.tabela["Modelo"] == modelo) & 
+                    (self.tabela["Servico"] == servico)
+                ]["TipoAro"].unique().tolist()
+                
+                keyboard = [
+                    [InlineKeyboardButton(aro.title(), callback_data=f"{modelo}|{servico}|{aro}")]
+                    for aro in tipos_aro
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(
+                    text=f"Com aro ou sem aro?",
+                    reply_markup=reply_markup
+                )
+            else:
+                resposta = self.buscar_preco(modelo, servico)
+                await query.edit_message_text(text=resposta)
+        
+        elif len(data) == 3:
+            # Callback de aro (modelo|serviço|tipo_aro)
+            modelo = data[0]
+            servico = data[1]
+            tipo_aro = data[2]
+            
+            resposta = self.buscar_preco(modelo, servico, tipo_aro)
+            await query.edit_message_text(text=resposta)
 
     def run(self):
         application = ApplicationBuilder().token(self.token).build()
@@ -175,10 +266,36 @@ if __name__ == "__main__":
     if not os.path.exists("precos.xlsx"):
         print("Criando arquivo 'precos.xlsx' de exemplo...")
         dados_exemplo = {
-            "Modelo": ["iPhone 11", "iPhone 11", "iPhone 12", "iPhone 12", "iPhone 13"],
-            "Servico": ["Tela", "Bateria", "Tela", "Conector", "Tela"],
-            "PrecoVista": [500.00, 250.00, 700.00, 300.00, 900.00],
-            "PrecoCartao": [550.00, 280.00, 780.00, 330.00, 990.00]
+            "Modelo": [
+                "Samsung A12", "Samsung A12", "Samsung A12", "Samsung A12",
+                "iPhone 11", "iPhone 11",
+                "Samsung A12", "Samsung A12",
+                "iPhone 11", "iPhone 11"
+            ],
+            "Servico": [
+                "Tela", "Tela", "Bateria", "Bateria",
+                "Tela", "Tela",
+                "Conector", "Conector",
+                "Bateria", "Bateria"
+            ],
+            "TipoAro": [
+                "com aro", "sem aro", "com aro", "sem aro",
+                "padrão", "padrão",
+                "com aro", "sem aro",
+                "padrão", "padrão"
+            ],
+            "PrecoVista": [
+                200.00, 170.00, 150.00, 150.00,
+                500.00, 500.00,
+                100.00, 100.00,
+                250.00, 250.00
+            ],
+            "PrecoCartao": [
+                220.00, 187.00, 165.00, 165.00,
+                550.00, 550.00,
+                110.00, 110.00,
+                275.00, 275.00
+            ]
         }
         df_exemplo = pd.DataFrame(dados_exemplo)
         df_exemplo.to_excel("precos.xlsx", index=False)
