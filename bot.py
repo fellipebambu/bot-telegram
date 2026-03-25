@@ -58,12 +58,19 @@ class BudgetBot:
             return f"❌ Não encontrei um orçamento para {modelo.title()} e {servico.title()}."
 
     def interpretar_texto(self, texto):
+        """
+        Interpreta o texto e encontra o modelo e serviço.
+        Prioriza modelos mais longos para evitar conflitos (ex: "iPhone 8 Plus" antes de "iPhone 8")
+        """
         texto = texto.lower()
         modelo_encontrado = None
         servico_encontrado = None
 
-        # Busca por modelos
-        for modelo in self.modelos_disponiveis:
+        # Ordena os modelos por comprimento (maior primeiro) para priorizar nomes mais específicos
+        modelos_ordenados = sorted(self.modelos_disponiveis, key=len, reverse=True)
+
+        # Busca por modelos (prioriza os mais longos)
+        for modelo in modelos_ordenados:
             if modelo in texto:
                 modelo_encontrado = modelo
                 break
@@ -268,32 +275,42 @@ if __name__ == "__main__":
         dados_exemplo = {
             "Modelo": [
                 "Samsung A12", "Samsung A12", "Samsung A12", "Samsung A12",
-                "iPhone 11", "iPhone 11",
+                "iPhone 8", "iPhone 8",
+                "iPhone 8 Plus", "iPhone 8 Plus",
                 "Samsung A12", "Samsung A12",
-                "iPhone 11", "iPhone 11"
+                "iPhone 8", "iPhone 8",
+                "iPhone 8 Plus", "iPhone 8 Plus"
             ],
             "Servico": [
                 "Tela", "Tela", "Bateria", "Bateria",
                 "Tela", "Tela",
+                "Tela", "Tela",
                 "Conector", "Conector",
+                "Bateria", "Bateria",
                 "Bateria", "Bateria"
             ],
             "TipoAro": [
                 "com aro", "sem aro", "com aro", "sem aro",
                 "padrão", "padrão",
+                "padrão", "padrão",
                 "com aro", "sem aro",
+                "padrão", "padrão",
                 "padrão", "padrão"
             ],
             "PrecoVista": [
                 200.00, 170.00, 150.00, 150.00,
+                400.00, 400.00,
                 500.00, 500.00,
                 100.00, 100.00,
+                200.00, 200.00,
                 250.00, 250.00
             ],
             "PrecoCartao": [
                 220.00, 187.00, 165.00, 165.00,
+                440.00, 440.00,
                 550.00, 550.00,
                 110.00, 110.00,
+                220.00, 220.00,
                 275.00, 275.00
             ]
         }
