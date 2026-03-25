@@ -40,16 +40,16 @@ def buscar_preco(modelo, servico):
 
 
 def interpretar_texto(texto):
-    texto = texto.lower().replace(" ", "")
+    texto = texto.lower()
 
     modelo = None
     servico = None
 
     # MODELOS
-    if "iphone11" in texto or "11" in texto:
-        modelo = "iphone11"
-    elif "iphone12" in texto or "12" in texto:
-        modelo = "iphone12"
+    if "iphone 11" in texto:
+        modelo = "iphone 11"
+    elif "iphone 12" in texto:
+        modelo = "iphone 12"
 
     # SERVIÇOS
     if "tela" in texto:
