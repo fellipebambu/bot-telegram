@@ -12,15 +12,18 @@ from telegram.ext import (
 TOKEN = os.getenv("TOKEN")
 
 tabela = pd.read_excel("precos.xlsx")
-print(tabela.columns)
-print(tabela.head())
+print("BUSCANDO:", modelo, servico)
+print(tabela[["Modelo", "Servico"]])
 
 # padroniza tudo
-tabela["Modelo"] = tabela["Modelo"].str.lower().str.replace(" ", "").str.strip()
+tabela["Modelo"] = tabela["Modelo"].str.lower().str.strip()
 tabela["Servico"] = tabela["Servico"].str.lower().str.strip()
 
 
 def buscar_preco(modelo, servico):
+    modelo = modelo.lower().strip()
+    servico = servico.lower().strip()
+
     resultado = tabela[
         (tabela["Modelo"] == modelo) &
         (tabela["Servico"] == servico)
@@ -29,12 +32,7 @@ def buscar_preco(modelo, servico):
     if not resultado.empty:
         preco_vista = resultado.iloc[0]["PrecoVista"]
         preco_cartao = resultado.iloc[0]["PrecoCartao"]
-
-        return (
-            f"📱 {modelo.title()} - {servico}\n\n"
-            f"💵 À vista: R$ {preco_vista}\n"
-            f"💳 Cartão: R$ {preco_cartao}\n\n"
-        )
+        return f"{modelo} - {servico}\n💵 À vista: R$ {preco_vista}\n💳 Cartão: R$ {preco_cartao}"
     else:
         return "❌ Não encontrei esse preço"
 
