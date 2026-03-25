@@ -1,12 +1,12 @@
-# budget_bot.py
 import pandas as pd
 import os
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    CallbackQueryHandler,
     filters
 )
 
@@ -27,7 +27,7 @@ class BudgetBot:
             tabela["Servico"] = tabela["Servico"].str.lower().str.strip()
             return tabela
         except FileNotFoundError:
-            print(f"ERRO: O arquivo '{self.excel_file}' não foi encontrado.")
+            print(f"ERRO: O arquivo \'{self.excel_file}\' não foi encontrado.")
             exit(1) # Encerra o bot se a tabela não for encontrada
         except Exception as e:
             print(f"ERRO ao carregar a tabela: {e}")
@@ -59,13 +59,24 @@ class BudgetBot:
         for modelo in self.modelos_disponiveis:
             if modelo in texto:
                 modelo_encontrado = modelo
-                break # Encontra o primeiro e sai
+                break
         
-        # Busca por serviços
-        for servico in self.servicos_disponiveis:
-            if servico in texto:
-                servico_encontrado = servico
-                break # Encontra o primeiro e sai
+        # Busca por serviços (apenas se um modelo foi encontrado ou se for uma busca geral)
+        # Se um modelo foi encontrado, podemos querer oferecer serviços para ele.
+        # Se nenhum modelo for encontrado, ainda podemos interpretar um serviço se for uma consulta autônoma.
+        if modelo_encontrado:
+            # Busca serviços específicos para o modelo encontrado
+            servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo_encontrado]["Servico"].unique().tolist()
+            for servico in servicos_para_modelo:
+                if servico in texto:
+                    servico_encontrado = servico
+                    break
+        else:
+            # Se nenhum modelo foi encontrado, tenta encontrar um serviço de forma geral
+            for servico in self.servicos_disponiveis:
+                if servico in texto:
+                    servico_encontrado = servico
+                    break
 
         return modelo_encontrado, servico_encontrado
 
@@ -79,34 +90,75 @@ class BudgetBot:
 
         modelo, servico = self.interpretar_texto(texto_args)
 
-        if not modelo or not servico:
+        if modelo and servico:
+            resposta = self.buscar_preco(modelo, servico)
+            await update.message.reply_text(resposta)
+        elif modelo and not servico:
+            # Se apenas o modelo foi encontrado, oferece os serviços como botões
+            servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo]["Servico"].unique().tolist()
+            if servicos_para_modelo:
+                keyboard = [
+                    [InlineKeyboardButton(s.title(), callback_data=f"{modelo}|{s}")]
+                    for s in servicos_para_modelo
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    f"Qual serviço você precisa para o {modelo.title()}?",
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.message.reply_text(f"Não encontrei serviços disponíveis para o {modelo.title()}.")
+        else:
             await update.message.reply_text(
                 "Não consegui entender o modelo ou o serviço. Por favor, tente novamente. "
                 "Ex: /preco tela iphone 11. Modelos disponíveis: "
-                f"{', '.join([m.title() for m in self.modelos_disponiveis])}. "
-                f"Serviços disponíveis: {', '.join([s.title() for s in self.servicos_disponiveis])}."
+                f"{\', \'.join([m.title() for m in self.modelos_disponiveis])}. "
+                f"Serviços disponíveis: {\', \'.join([s.title() for s in self.servicos_disponiveis])}."
             )
-            return
-
-        resposta = self.buscar_preco(modelo, servico)
-        await update.message.reply_text(resposta)
 
     async def responder_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto = update.message.text
         modelo, servico = self.interpretar_texto(texto)
 
-        if not modelo or not servico:
+        if modelo and servico:
+            resposta = self.buscar_preco(modelo, servico)
+            await update.message.reply_text(resposta)
+        elif modelo and not servico:
+            # Se apenas o modelo foi encontrado, oferece os serviços como botões
+            servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo]["Servico"].unique().tolist()
+            if servicos_para_modelo:
+                keyboard = [
+                    [InlineKeyboardButton(s.title(), callback_data=f"{modelo}|{s}")]
+                    for s in servicos_para_modelo
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    f"Qual serviço você precisa para o {modelo.title()}?",
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.message.reply_text(f"Não encontrei serviços disponíveis para o {modelo.title()}.")
+        else:
             # Ignora a mensagem se não conseguir interpretar modelo e serviço
             return
 
+    async def button_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer() # Responde ao callback para remover o estado de 'carregando' do botão
+
+        data = query.data.split('|')
+        modelo = data[0]
+        servico = data[1]
+
         resposta = self.buscar_preco(modelo, servico)
-        await update.message.reply_text(resposta)
+        await query.edit_message_text(text=resposta)
 
     def run(self):
         application = ApplicationBuilder().token(self.token).build()
 
         application.add_handler(CommandHandler("preco", self.preco_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.responder_message))
+        application.add_handler(CallbackQueryHandler(self.button_callback_handler))
 
         print("Bot rodando... 🚀")
         application.run_polling()
@@ -114,21 +166,21 @@ class BudgetBot:
 if __name__ == "__main__":
     TOKEN = os.getenv("TOKEN")
     if not TOKEN:
-        print("ERRO: A variável de ambiente 'TOKEN' não está definida.")
+        print("ERRO: A variável de ambiente \'TOKEN\' não está definida.")
         exit(1)
     
-    # Cria um arquivo de exemplo 'precos.xlsx' se não existir
+    # Cria um arquivo de exemplo \'precos.xlsx\' se não existir
     if not os.path.exists("precos.xlsx"):
-        print("Criando arquivo 'precos.xlsx' de exemplo...")
+        print("Criando arquivo \'precos.xlsx\' de exemplo...")
         dados_exemplo = {
-            "Modelo": ["iPhone 11", "iPhone 11", "iPhone 12", "iPhone 12"],
-            "Servico": ["Tela", "Bateria", "Tela", "Conector"],
-            "PrecoVista": [500.00, 250.00, 700.00, 300.00],
-            "PrecoCartao": [550.00, 280.00, 780.00, 330.00]
+            "Modelo": ["iPhone 11", "iPhone 11", "iPhone 12", "iPhone 12", "iPhone 13"],
+            "Servico": ["Tela", "Bateria", "Tela", "Conector", "Tela"],
+            "PrecoVista": [500.00, 250.00, 700.00, 300.00, 900.00],
+            "PrecoCartao": [550.00, 280.00, 780.00, 330.00, 990.00]
         }
         df_exemplo = pd.DataFrame(dados_exemplo)
         df_exemplo.to_excel("precos.xlsx", index=False)
-        print("Arquivo 'precos.xlsx' de exemplo criado com sucesso.")
+        print("Arquivo \'precos.xlsx\' de exemplo criado com sucesso.")
 
     bot = BudgetBot(TOKEN)
     bot.run()
