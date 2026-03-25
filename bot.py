@@ -22,15 +22,20 @@ tabela["Servico"] = tabela["Servico"].str.lower().str.strip()
 
 def buscar_preco(modelo, servico):
     resultado = tabela[
-        tabela["Modelo"].str.contains(modelo, case=False, na=False) &
-        tabela["Servico"].str.contains(servico, case=False, na=False)
+        (tabela["Modelo"] == modelo) &
+        (tabela["Servico"] == servico)
     ]
 
     if not resultado.empty:
-        preco = resultado.iloc[0]["Preco"]
-        modelo_planilha = resultado.iloc[0]["Modelo"]
-        servico_planilha = resultado.iloc[0]["Servico"]
-        return f"💰 {modelo_planilha} - {servico_planilha}: R$ {preco}"
+        preco_vista = resultado.iloc[0]["PrecoVista"]
+        preco_cartao = resultado.iloc[0]["PrecoCartao"]
+
+        return (
+            f"📱 {modelo.title()} - {servico}\n\n"
+            f"💵 À vista: R$ {preco_vista}\n"
+            f"💳 Cartão: R$ {preco_cartao}\n\n"
+            f"⚡ Fazemos na hora!"
+        )
     else:
         return "❌ Não encontrei esse preço"
 
