@@ -12,8 +12,8 @@ from telegram.ext import (
 TOKEN = os.getenv("TOKEN")
 
 tabela = pd.read_excel("precos.xlsx")
-print(tabela.head())
 print(tabela.columns)
+print(tabela.head())
 
 # padroniza tudo
 tabela["Modelo"] = tabela["Modelo"].str.lower().str.strip()
