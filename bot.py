@@ -34,7 +34,6 @@ def buscar_preco(modelo, servico):
             f"📱 {modelo.title()} - {servico}\n\n"
             f"💵 À vista: R$ {preco_vista}\n"
             f"💳 Cartão: R$ {preco_cartao}\n\n"
-            f"⚡ Fazemos na hora!"
         )
     else:
         return "❌ Não encontrei esse preço"
