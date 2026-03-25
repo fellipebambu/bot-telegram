@@ -16,7 +16,7 @@ print(tabela.columns)
 print(tabela.head())
 
 # padroniza tudo
-tabela["Modelo"] = tabela["Modelo"].str.lower().str.strip()
+tabela["Modelo"] = tabela["Modelo"].str.lower().str.replace(" ", "").str.strip()
 tabela["Servico"] = tabela["Servico"].str.lower().str.strip()
 
 
@@ -47,8 +47,8 @@ def interpretar_texto(texto):
     servico = None
 
     # MODELOS
-    if "iphone11" in texto:
-        modelo = "iphone11"
+   if "iphone 11" in texto or "iphone11" in texto or "11" in texto:
+    modelo = "iphone11"
     elif "iphone12" in texto:
         modelo = "iphone12"
 
