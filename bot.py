@@ -25,32 +25,32 @@ class BudgetBot:
             # Padroniza as colunas de modelo e serviço para facilitar a busca
             tabela["Modelo"] = tabela["Modelo"].str.lower().str.strip()
             tabela["Servico"] = tabela["Servico"].str.lower().str.strip()
-            if "TipoAro" in tabela.columns:
-                tabela["TipoAro"] = tabela["TipoAro"].str.lower().str.strip()
+            if "Variacao" in tabela.columns:
+                tabela["Variacao"] = tabela["Variacao"].str.lower().str.strip()
             return tabela
         except FileNotFoundError:
             print(f"ERRO: O arquivo '{self.excel_file}' não foi encontrado.")
-            exit(1) # Encerra o bot se a tabela não for encontrada
+            exit(1)
         except Exception as e:
             print(f"ERRO ao carregar a tabela: {e}")
             exit(1)
 
-    def buscar_preco(self, modelo, servico, tipo_aro=None):
-        # A tabela já está padronizada, então não precisamos fazer .lower().strip() aqui novamente
+    def buscar_preco(self, modelo, servico, variacao=None):
+        """Busca o preço baseado em modelo, serviço e variação (opcional)"""
         filtro = (self.tabela["Modelo"] == modelo) & (self.tabela["Servico"] == servico)
         
-        # Se tipo_aro foi especificado, adiciona ao filtro
-        if tipo_aro and "TipoAro" in self.tabela.columns:
-            filtro = filtro & (self.tabela["TipoAro"] == tipo_aro.lower().strip())
+        # Se variação foi especificada, adiciona ao filtro
+        if variacao and "Variacao" in self.tabela.columns:
+            filtro = filtro & (self.tabela["Variacao"] == variacao.lower().strip())
         
         resultado = self.tabela[filtro]
         
         if not resultado.empty:
             preco_vista = resultado.iloc[0]["PrecoVista"]
             preco_cartao = resultado.iloc[0]["PrecoCartao"]
-            tipo_aro_str = f" ({tipo_aro})" if tipo_aro else ""
+            variacao_str = f" ({variacao})" if variacao else ""
             return (
-                f"✅ {servico.title()} do {modelo.title()}{tipo_aro_str}:\n"
+                f"✅ {servico.title()} do {modelo.title()}{variacao_str}:\n"
                 f"💵 À vista: R$ {preco_vista:.2f}\n"
                 f"💳 Cartão: R$ {preco_cartao:.2f}"
             )
@@ -92,28 +92,25 @@ class BudgetBot:
 
         return modelo_encontrado, servico_encontrado
 
-    def verificar_necessidade_aro(self, modelo, servico):
+    def obter_variacoes(self, modelo, servico):
         """
-        Verifica se o serviço 'tela' tem AMBAS as variações (com aro E sem aro) cadastradas.
-        Só retorna True se houver exatamente 2 tipos de aro diferentes.
+        Retorna a lista de variações disponíveis para um modelo e serviço.
+        Se houver múltiplas variações, retorna a lista.
+        Se houver apenas uma, retorna None (não precisa perguntar).
         """
-        if servico != "tela":
-            return False
+        if "Variacao" not in self.tabela.columns:
+            return None
         
-        if "TipoAro" not in self.tabela.columns:
-            return False
-        
-        # Busca todos os tipos de aro para este modelo/serviço
-        tipos_aro = self.tabela[
+        variacoes = self.tabela[
             (self.tabela["Modelo"] == modelo) & 
             (self.tabela["Servico"] == servico)
-        ]["TipoAro"].unique().tolist()
+        ]["Variacao"].unique().tolist()
         
-        # Só pergunta se houver AMBAS as opções (com aro e sem aro)
-        tem_com_aro = any("com aro" in aro for aro in tipos_aro)
-        tem_sem_aro = any("sem aro" in aro for aro in tipos_aro)
+        # Se houver apenas uma variação, não precisa perguntar
+        if len(variacoes) <= 1:
+            return None
         
-        return tem_com_aro and tem_sem_aro
+        return variacoes
 
     async def preco_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_args = " ".join(context.args)
@@ -126,23 +123,21 @@ class BudgetBot:
         modelo, servico = self.interpretar_texto(texto_args)
 
         if modelo and servico:
-            # Se é tela, verifica se precisa perguntar sobre aro
-            if self.verificar_necessidade_aro(modelo, servico):
-                tipos_aro = self.tabela[
-                    (self.tabela["Modelo"] == modelo) & 
-                    (self.tabela["Servico"] == servico)
-                ]["TipoAro"].unique().tolist()
-                
+            variacoes = self.obter_variacoes(modelo, servico)
+            
+            if variacoes:
+                # Se há múltiplas variações, oferece como botões
                 keyboard = [
-                    [InlineKeyboardButton(aro.title(), callback_data=f"{modelo}|{servico}|{aro}")]
-                    for aro in tipos_aro
+                    [InlineKeyboardButton(v.title(), callback_data=f"{modelo}|{servico}|{v}")]
+                    for v in variacoes
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
-                    f"Com aro ou sem aro?",
+                    f"Qual tipo de {servico} você precisa?",
                     reply_markup=reply_markup
                 )
             else:
+                # Se há apenas uma variação, mostra o preço direto
                 resposta = self.buscar_preco(modelo, servico)
                 await update.message.reply_text(resposta)
         elif modelo and not servico:
@@ -175,23 +170,21 @@ class BudgetBot:
         modelo, servico = self.interpretar_texto(texto)
 
         if modelo and servico:
-            # Se é tela, verifica se precisa perguntar sobre aro
-            if self.verificar_necessidade_aro(modelo, servico):
-                tipos_aro = self.tabela[
-                    (self.tabela["Modelo"] == modelo) & 
-                    (self.tabela["Servico"] == servico)
-                ]["TipoAro"].unique().tolist()
-                
+            variacoes = self.obter_variacoes(modelo, servico)
+            
+            if variacoes:
+                # Se há múltiplas variações, oferece como botões
                 keyboard = [
-                    [InlineKeyboardButton(aro.title(), callback_data=f"{modelo}|{servico}|{aro}")]
-                    for aro in tipos_aro
+                    [InlineKeyboardButton(v.title(), callback_data=f"{modelo}|{servico}|{v}")]
+                    for v in variacoes
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
-                    f"Com aro ou sem aro?",
+                    f"Qual tipo de {servico} você precisa?",
                     reply_markup=reply_markup
                 )
             else:
+                # Se há apenas uma variação, mostra o preço direto
                 resposta = self.buscar_preco(modelo, servico)
                 await update.message.reply_text(resposta)
         elif modelo and not servico:
@@ -215,7 +208,7 @@ class BudgetBot:
 
     async def button_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer() # Responde ao callback para remover o estado de 'carregando' do botão
+        await query.answer()
 
         data = query.data.split('|')
         
@@ -224,20 +217,17 @@ class BudgetBot:
             modelo = data[0]
             servico = data[1]
             
-            # Verifica se precisa perguntar sobre aro
-            if self.verificar_necessidade_aro(modelo, servico):
-                tipos_aro = self.tabela[
-                    (self.tabela["Modelo"] == modelo) & 
-                    (self.tabela["Servico"] == servico)
-                ]["TipoAro"].unique().tolist()
-                
+            variacoes = self.obter_variacoes(modelo, servico)
+            
+            if variacoes:
+                # Se há múltiplas variações, oferece como botões
                 keyboard = [
-                    [InlineKeyboardButton(aro.title(), callback_data=f"{modelo}|{servico}|{aro}")]
-                    for aro in tipos_aro
+                    [InlineKeyboardButton(v.title(), callback_data=f"{modelo}|{servico}|{v}")]
+                    for v in variacoes
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(
-                    text=f"Com aro ou sem aro?",
+                    text=f"Qual tipo de {servico} você precisa?",
                     reply_markup=reply_markup
                 )
             else:
@@ -245,12 +235,12 @@ class BudgetBot:
                 await query.edit_message_text(text=resposta)
         
         elif len(data) == 3:
-            # Callback de aro (modelo|serviço|tipo_aro)
+            # Callback de variação (modelo|serviço|variacao)
             modelo = data[0]
             servico = data[1]
-            tipo_aro = data[2]
+            variacao = data[2]
             
-            resposta = self.buscar_preco(modelo, servico, tipo_aro)
+            resposta = self.buscar_preco(modelo, servico, variacao)
             await query.edit_message_text(text=resposta)
 
     def run(self):
@@ -276,10 +266,10 @@ if __name__ == "__main__":
             "Modelo": [
                 "Samsung A12", "Samsung A12", "Samsung A12", "Samsung A12",
                 "iPhone 8", "iPhone 8",
-                "iPhone 8 Plus", "iPhone 8 Plus",
+                "iPhone X", "iPhone X",
                 "Samsung A12", "Samsung A12",
                 "iPhone 8", "iPhone 8",
-                "iPhone 8 Plus", "iPhone 8 Plus"
+                "iPhone X", "iPhone X"
             ],
             "Servico": [
                 "Tela", "Tela", "Bateria", "Bateria",
@@ -289,10 +279,10 @@ if __name__ == "__main__":
                 "Bateria", "Bateria",
                 "Bateria", "Bateria"
             ],
-            "TipoAro": [
+            "Variacao": [
                 "com aro", "sem aro", "com aro", "sem aro",
                 "padrão", "padrão",
-                "padrão", "padrão",
+                "1ª linha", "oled",
                 "com aro", "sem aro",
                 "padrão", "padrão",
                 "padrão", "padrão"
@@ -300,7 +290,7 @@ if __name__ == "__main__":
             "PrecoVista": [
                 200.00, 170.00, 150.00, 150.00,
                 400.00, 400.00,
-                500.00, 500.00,
+                300.00, 500.00,
                 100.00, 100.00,
                 200.00, 200.00,
                 250.00, 250.00
@@ -308,7 +298,7 @@ if __name__ == "__main__":
             "PrecoCartao": [
                 220.00, 187.00, 165.00, 165.00,
                 440.00, 440.00,
-                550.00, 550.00,
+                330.00, 550.00,
                 110.00, 110.00,
                 220.00, 220.00,
                 275.00, 275.00
