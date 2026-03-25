@@ -47,9 +47,9 @@ def interpretar_texto(texto):
     servico = None
 
     # MODELOS
-   if "iphone 11" in texto or "iphone11" in texto or "11" in texto:
-    modelo = "iphone11"
-    elif "iphone12" in texto:
+    if "iphone11" in texto or "11" in texto:
+        modelo = "iphone11"
+    elif "iphone12" in texto or "12" in texto:
         modelo = "iphone12"
 
     # SERVIÇOS
