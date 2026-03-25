@@ -26,8 +26,7 @@ class BudgetBot:
             tabela["Modelo"] = tabela["Modelo"].str.lower().str.strip()
             tabela["Servico"] = tabela["Servico"].str.lower().str.strip()
             return tabela
-        except FileNotFoundError:
-            print(f"ERRO: O arquivo \'{self.excel_file}\' não foi encontrado.")
+        except FileNotFoundError:        print(f"ERRO: O arquivo '{self.excel_file}' não foi encontrado.")
             exit(1) # Encerra o bot se a tabela não for encontrada
         except Exception as e:
             print(f"ERRO ao carregar a tabela: {e}")
@@ -112,8 +111,8 @@ class BudgetBot:
             await update.message.reply_text(
                 "Não consegui entender o modelo ou o serviço. Por favor, tente novamente. "
                 "Ex: /preco tela iphone 11. Modelos disponíveis: "
-                f"{\', \'.join([m.title() for m in self.modelos_disponiveis])}. "
-                f"Serviços disponíveis: {\', \'.join([s.title() for s in self.servicos_disponiveis])}."
+                f"{', '.join([m.title() for m in self.modelos_disponiveis])}. "
+                f"Serviços disponíveis: {', '.join([s.title() for s in self.servicos_disponiveis])}."
             )
 
     async def responder_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -144,9 +143,9 @@ class BudgetBot:
 
     async def button_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await query.answer() # Responde ao callback para remover o estado de 'carregando' do botão
+        await query.answer() # Responde ao callback para remover o estado de \'carregando\' do botão
 
-        data = query.data.split('|')
+        data = query.data.split(\'|\')
         modelo = data[0]
         servico = data[1]
 
@@ -166,12 +165,12 @@ class BudgetBot:
 if __name__ == "__main__":
     TOKEN = os.getenv("TOKEN")
     if not TOKEN:
-        print("ERRO: A variável de ambiente \'TOKEN\' não está definida.")
+        print("ERRO: A variável de ambiente 'TOKEN' não está definida.")
         exit(1)
     
     # Cria um arquivo de exemplo \'precos.xlsx\' se não existir
     if not os.path.exists("precos.xlsx"):
-        print("Criando arquivo \'precos.xlsx\' de exemplo...")
+        print("Criando arquivo 'precos.xlsx' de exemplo...")
         dados_exemplo = {
             "Modelo": ["iPhone 11", "iPhone 11", "iPhone 12", "iPhone 12", "iPhone 13"],
             "Servico": ["Tela", "Bateria", "Tela", "Conector", "Tela"],
@@ -180,7 +179,7 @@ if __name__ == "__main__":
         }
         df_exemplo = pd.DataFrame(dados_exemplo)
         df_exemplo.to_excel("precos.xlsx", index=False)
-        print("Arquivo \'precos.xlsx\' de exemplo criado com sucesso.")
+        print("Arquivo 'precos.xlsx' de exemplo criado com sucesso.")
 
     bot = BudgetBot(TOKEN)
     bot.run()
