@@ -10,7 +10,7 @@ tabela = pd.read_excel("precos.xlsx")
 
 def buscar_preco(modelo, servico):
     resultado = tabela[
-        (tabela = pd.read_excel("precos.xlsx")
+        tabela = pd.read_excel("precos.xlsx")
 
 tabela["Modelo"] = tabela["Modelo"].str.lower().str.strip()
 tabela["Servico"] = tabela["Servico"].str.lower().str.strip()) &
