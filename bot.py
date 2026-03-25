@@ -43,7 +43,7 @@ class BudgetBot:
             preco_vista = resultado.iloc[0]["PrecoVista"]
             preco_cartao = resultado.iloc[0]["PrecoCartao"]
             return (
-                f"✅ Orçamento para {modelo.title()} - {servico.title()}:\n"
+                f"✅ {servico.title()} do {modelo.title()}:\n"
                 f"💵 À vista: R$ {preco_vista:.2f}\n"
                 f"💳 Cartão: R$ {preco_cartao:.2f}"
             )
