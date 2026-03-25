@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 # pega o token das variáveis do Railway
 TOKEN = os.getenv("TOKEN")
@@ -62,6 +62,32 @@ async def preco(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     resposta = buscar_preco(modelo, servico)
+    await update.message.reply_text(f"💰 {resposta
+    
+    async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text.lower()
+
+    if "iphone 11" in texto:
+        modelo = "iphone 11"
+    elif "iphone 12" in texto:
+        modelo = "iphone 12"
+    else:
+        modelo = None
+
+    if "tela" in texto:
+        servico = "tela"
+    elif "bateria" in texto:
+        servico = "bateria"
+    elif "conector" in texto:
+        servico = "conector"
+    else:
+        servico = None
+
+    if not modelo or not servico:
+        await update.message.reply_text("🤔 Fala tipo: tela iphone 11")
+        return
+
+    resposta = buscar_preco(modelo, servico)
     await update.message.reply_text(f"💰 {resposta}")
 
 # inicia o bot
@@ -70,3 +96,4 @@ app.add_handler(CommandHandler("preco", preco))
 
 print("Bot rodando...")
 app.run_polling()
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
