@@ -1,0 +1,43 @@
+modelo,servico,Variacao,precovista,precocartao
+iphone 11,tela,padrao,260,290
+iphone 11,bateria,padrao,220,240
+a12,tela,sem aro,170,186
+a12,tela,com aro,190,209
+iphone xr,tela,1ª linha,230,260
+iphone xr,tela,oled,290,320
+Iphone 6,tela,padrao,150,165
+iphone 6s,tela,padrao,160,175
+Iphone 6 plus,tela,padrao,170,186
+iphone 6s plus,tela,padrao,170,186
+Iphone 7,tela,padrao,160,176
+iphone 8,tela,padrao,160,176
+iphone 7 plus,tela,padrao,190,210
+iphone 8 plus,tela,padrao,190,210
+iphone x,tela,1ª linha,240,260
+iphone x,tela,oled,290,320
+iphone xs,tela,1ª linha,240,260
+iphone xs,tela,oled,290,320
+iphone xs max,tela,1ª linha,260,280
+iphone xs max,tela,oled,540,590
+iphone 11 pro,tela,1ª linha,330,360
+iphone 11 pro,tela,oled,480,520
+iphone 11 pro max,tela,1ª linha,380,410
+iphone 11 pro max,tela,oled,570,620
+Iphone 12,tela,1ª linha,270,295
+Iphone 12,tela,oled,500,550
+iphone x,bateria,padrao,220,240
+Iphone 12 pro max,tela,1ª linha,450,500
+Iphone 13 pro max,tela,1ª linha,550,600
+Iphone 14,tela,1ª linha,260,290
+Iphone 14,tela,oled,360,400
+Iphone 13 pro max,tela,1ª linha,300,330
+zb631kl,tela,padrao,280,300
+zc551kl,tela,padrao,160,175
+zc553kl,tela,padrao,190,209
+zc500tg,tela,padrao,160,175
+zd552kl,tela,oled,340,370
+ze520kl,tela,oled,230,250
+ze551kl,tela,padrao,160,175
+ze620kl,tela,padrao,280,310
+zb634kl,tela,padrao,250,275
+k10,tela,padrao,160,175
