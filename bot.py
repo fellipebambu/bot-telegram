@@ -169,9 +169,9 @@ class BudgetBot:
     async def button_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         chat_id = query.message.chat_id
-        await query.answer() # Responde ao callback para remover o estado de \'carregando\' do botão
+        await query.answer() # Responde ao callback para remover o estado de 'carregando' do botão
 
-        data = query.data.split(\'|\')
+        data = query.data.split('|')
         modelo = data[0]
         servico = data[1]
 
@@ -207,12 +207,12 @@ class BudgetBot:
 if __name__ == "__main__":
     TOKEN = os.getenv("TOKEN")
     if not TOKEN:
-        print("ERRO: A variável de ambiente \'TOKEN\' não está definida.")
+        print("ERRO: A variável de ambiente 'TOKEN' não está definida.")
         exit(1)
     
-    # Cria um arquivo de exemplo \'precos.xlsx\' se não existir
+    # Cria um arquivo de exemplo 'precos.xlsx' se não existir
     if not os.path.exists("precos.xlsx"):
-        print("Criando arquivo \'precos.xlsx\' de exemplo...")
+        print("Criando arquivo 'precos.xlsx' de exemplo...")
         dados_exemplo = {
             "Modelo": ["iPhone 11", "iPhone 11", "iPhone 12", "iPhone 12", "iPhone 13"],
             "Servico": ["Tela", "Bateria", "Tela", "Conector", "Tela"],
@@ -221,7 +221,7 @@ if __name__ == "__main__":
         }
         df_exemplo = pd.DataFrame(dados_exemplo)
         df_exemplo.to_excel("precos.xlsx", index=False)
-        print("Arquivo \'precos.xlsx\' de exemplo criado com sucesso.")
+        print("Arquivo 'precos.xlsx' de exemplo criado com sucesso.")
 
     bot = BudgetBot(TOKEN)
     bot.run()
