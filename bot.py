@@ -7,18 +7,8 @@ from telegram.ext import (
     ContextTypes,
     MessageHandler,
     CallbackQueryHandler,
-    filters,
-    JobQueue
+    filters
 )
-from datetime import time
-import logging
-
-# Configurar logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
 
 class BudgetBot:
     def __init__(self, token, excel_file="precos.xlsx"):
@@ -27,8 +17,7 @@ class BudgetBot:
         self.tabela = self._carregar_tabela()
         self.modelos_disponiveis = self.tabela["Modelo"].unique().tolist()
         self.servicos_disponiveis = self.tabela["Servico"].unique().tolist()
-        self.message_history = {} # Dicionário para armazenar IDs de mensagens por chat_id
-        logger.info(f"Bot inicializado. Modelos: {self.modelos_disponiveis}, Serviços: {self.servicos_disponiveis}")
+        print(f"Bot inicializado. Modelos: {self.modelos_disponiveis}, Serviços: {self.servicos_disponiveis}")
 
     def _carregar_tabela(self):
         try:
@@ -36,25 +25,32 @@ class BudgetBot:
             # Padroniza as colunas de modelo e serviço para facilitar a busca
             tabela["Modelo"] = tabela["Modelo"].str.lower().str.strip()
             tabela["Servico"] = tabela["Servico"].str.lower().str.strip()
+            if "Variacao" in tabela.columns:
+                tabela["Variacao"] = tabela["Variacao"].str.lower().str.strip()
             return tabela
         except FileNotFoundError:
-            logger.error(f"ERRO: O arquivo \'{self.excel_file}\' não foi encontrado.")
-            exit(1) # Encerra o bot se a tabela não for encontrada
+            print(f"ERRO: O arquivo '{self.excel_file}' não foi encontrado.")
+            exit(1)
         except Exception as e:
-            logger.error(f"ERRO ao carregar a tabela: {e}")
+            print(f"ERRO ao carregar a tabela: {e}")
             exit(1)
 
-    def buscar_preco(self, modelo, servico):
-        # A tabela já está padronizada, então não precisamos fazer .lower().strip() aqui novamente
-        resultado = self.tabela[
-            (self.tabela["Modelo"] == modelo) &
-            (self.tabela["Servico"] == servico)
-        ]
+    def buscar_preco(self, modelo, servico, variacao=None):
+        """Busca o preço baseado em modelo, serviço e variação (opcional)"""
+        filtro = (self.tabela["Modelo"] == modelo) & (self.tabela["Servico"] == servico)
+        
+        # Se variação foi especificada, adiciona ao filtro
+        if variacao and "Variacao" in self.tabela.columns:
+            filtro = filtro & (self.tabela["Variacao"] == variacao.lower().strip())
+        
+        resultado = self.tabela[filtro]
+        
         if not resultado.empty:
             preco_vista = resultado.iloc[0]["PrecoVista"]
             preco_cartao = resultado.iloc[0]["PrecoCartao"]
+            variacao_str = f" ({variacao})" if variacao else ""
             return (
-                f"✅ {servico.title()} do {modelo.title()}:\n"
+                f"✅ {servico.title()} do {modelo.title()}{variacao_str}:\n"
                 f"💵 À vista: R$ {preco_vista:.2f}\n"
                 f"💳 Cartão: R$ {preco_cartao:.2f}"
             )
@@ -62,24 +58,33 @@ class BudgetBot:
             return f"❌ Não encontrei um orçamento para {modelo.title()} e {servico.title()}."
 
     def interpretar_texto(self, texto):
+        """
+        Interpreta o texto e encontra o modelo e serviço.
+        Prioriza modelos mais longos para evitar conflitos (ex: "iPhone 8 Plus" antes de "iPhone 8")
+        """
         texto = texto.lower()
         modelo_encontrado = None
         servico_encontrado = None
 
-        # Busca por modelos
-        for modelo in self.modelos_disponiveis:
+        # Ordena os modelos por comprimento (maior primeiro) para priorizar nomes mais específicos
+        modelos_ordenados = sorted(self.modelos_disponiveis, key=len, reverse=True)
+
+        # Busca por modelos (prioriza os mais longos)
+        for modelo in modelos_ordenados:
             if modelo in texto:
                 modelo_encontrado = modelo
                 break
         
         # Busca por serviços (apenas se um modelo foi encontrado ou se for uma busca geral)
         if modelo_encontrado:
+            # Busca serviços específicos para o modelo encontrado
             servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo_encontrado]["Servico"].unique().tolist()
             for servico in servicos_para_modelo:
                 if servico in texto:
                     servico_encontrado = servico
                     break
         else:
+            # Se nenhum modelo foi encontrado, tenta encontrar um serviço de forma geral
             for servico in self.servicos_disponiveis:
                 if servico in texto:
                     servico_encontrado = servico
@@ -87,31 +92,56 @@ class BudgetBot:
 
         return modelo_encontrado, servico_encontrado
 
-    async def _track_message(self, chat_id, message_id):
-        if chat_id not in self.message_history:
-            self.message_history[chat_id] = []
-        self.message_history[chat_id].append(message_id)
-        logger.debug(f"Mensagem {message_id} rastreada para o chat {chat_id}")
+    def obter_variacoes(self, modelo, servico):
+        """
+        Retorna a lista de variações disponíveis para um modelo e serviço.
+        Se houver múltiplas variações, retorna a lista.
+        Se houver apenas uma, retorna None (não precisa perguntar).
+        """
+        if "Variacao" not in self.tabela.columns:
+            return None
+        
+        variacoes = self.tabela[
+            (self.tabela["Modelo"] == modelo) & 
+            (self.tabela["Servico"] == servico)
+        ]["Variacao"].unique().tolist()
+        
+        # Se houver apenas uma variação, não precisa perguntar
+        if len(variacoes) <= 1:
+            return None
+        
+        return variacoes
 
     async def preco_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        chat_id = update.message.chat_id
-        await self._track_message(chat_id, update.message.message_id) # Rastreia a mensagem do usuário
-
         texto_args = " ".join(context.args)
         if not texto_args:
-            sent_message = await update.message.reply_text(
+            await update.message.reply_text(
                 "Por favor, informe o modelo e o serviço. Ex: /preco tela iphone 11"
             )
-            await self._track_message(chat_id, sent_message.message_id)
             return
 
         modelo, servico = self.interpretar_texto(texto_args)
 
         if modelo and servico:
-            resposta = self.buscar_preco(modelo, servico)
-            sent_message = await update.message.reply_text(resposta)
-            await self._track_message(chat_id, sent_message.message_id)
+            variacoes = self.obter_variacoes(modelo, servico)
+            
+            if variacoes:
+                # Se há múltiplas variações, oferece como botões
+                keyboard = [
+                    [InlineKeyboardButton(v.title(), callback_data=f"{modelo}|{servico}|{v}")]
+                    for v in variacoes
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    f"Qual tipo de {servico} você precisa?",
+                    reply_markup=reply_markup
+                )
+            else:
+                # Se há apenas uma variação, mostra o preço direto
+                resposta = self.buscar_preco(modelo, servico)
+                await update.message.reply_text(resposta)
         elif modelo and not servico:
+            # Se apenas o modelo foi encontrado, oferece os serviços como botões
             servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo]["Servico"].unique().tolist()
             if servicos_para_modelo:
                 keyboard = [
@@ -119,36 +149,46 @@ class BudgetBot:
                     for s in servicos_para_modelo
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                sent_message = await update.message.reply_text(
+                await update.message.reply_text(
                     f"Qual serviço você precisa para o {modelo.title()}?",
                     reply_markup=reply_markup
                 )
-                await self._track_message(chat_id, sent_message.message_id)
             else:
-                sent_message = await update.message.reply_text(f"Não encontrei serviços disponíveis para o {modelo.title()}.")
-                await self._track_message(chat_id, sent_message.message_id)
+                await update.message.reply_text(f"Não encontrei serviços disponíveis para o {modelo.title()}.")
         else:
-            modelos_str = ", ".join([m.title() for m in self.modelos_disponiveis])
-            servicos_str = ", ".join([s.title() for s in self.servicos_disponiveis])
-            sent_message = await update.message.reply_text(
+            # Construindo a mensagem de erro de forma mais robusta
+            modelos_str = ', '.join([m.title() for m in self.modelos_disponiveis])
+            servicos_str = ', '.join([s.title() for s in self.servicos_disponiveis])
+            await update.message.reply_text(
                 "Não consegui entender o modelo ou o serviço. Por favor, tente novamente. "
                 f"Ex: /preco tela iphone 11. Modelos disponíveis: {modelos_str}. "
                 f"Serviços disponíveis: {servicos_str}."
             )
-            await self._track_message(chat_id, sent_message.message_id)
 
     async def responder_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        chat_id = update.message.chat_id
-        await self._track_message(chat_id, update.message.message_id) # Rastreia a mensagem do usuário
-
         texto = update.message.text
         modelo, servico = self.interpretar_texto(texto)
 
         if modelo and servico:
-            resposta = self.buscar_preco(modelo, servico)
-            sent_message = await update.message.reply_text(resposta)
-            await self._track_message(chat_id, sent_message.message_id)
+            variacoes = self.obter_variacoes(modelo, servico)
+            
+            if variacoes:
+                # Se há múltiplas variações, oferece como botões
+                keyboard = [
+                    [InlineKeyboardButton(v.title(), callback_data=f"{modelo}|{servico}|{v}")]
+                    for v in variacoes
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    f"Qual tipo de {servico} você precisa?",
+                    reply_markup=reply_markup
+                )
+            else:
+                # Se há apenas uma variação, mostra o preço direto
+                resposta = self.buscar_preco(modelo, servico)
+                await update.message.reply_text(resposta)
         elif modelo and not servico:
+            # Se apenas o modelo foi encontrado, oferece os serviços como botões
             servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo]["Servico"].unique().tolist()
             if servicos_para_modelo:
                 keyboard = [
@@ -156,83 +196,117 @@ class BudgetBot:
                     for s in servicos_para_modelo
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                sent_message = await update.message.reply_text(
+                await update.message.reply_text(
                     f"Qual serviço você precisa para o {modelo.title()}?",
                     reply_markup=reply_markup
                 )
-                await self._track_message(chat_id, sent_message.message_id)
             else:
-                sent_message = await update.message.reply_text(f"Não encontrei serviços disponíveis para o {modelo.title()}.")
-                await self._track_message(chat_id, sent_message.message_id)
+                await update.message.reply_text(f"Não encontrei serviços disponíveis para o {modelo.title()}.")
         else:
-            return # Ignora a mensagem se não conseguir interpretar modelo e serviço
+            # Ignora a mensagem se não conseguir interpretar modelo e serviço
+            return
 
     async def button_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        chat_id = query.message.chat_id
-        await query.answer() # Responde ao callback para remover o estado de 'carregando' do botão
+        await query.answer()
 
-        data = query.data.split("|")
-        modelo = data[0]
-        servico = data[1]
-
-        resposta = self.buscar_preco(modelo, servico)
-        sent_message = await query.edit_message_text(text=resposta)
-        await self._track_message(chat_id, sent_message.message_id)
-
-    async def _clear_history_job(self, context: ContextTypes.DEFAULT_TYPE):
-        logger.info("Iniciando tarefa de limpeza de histórico...")
-        bot = context.bot
-        for chat_id, message_ids in self.message_history.items():
-            logger.info(f"Tentando apagar {len(message_ids)} mensagens no chat {chat_id}...")
-            for message_id in message_ids:
-                try:
-                    await bot.delete_message(chat_id=chat_id, message_id=message_id)
-                    logger.debug(f"Mensagem {message_id} apagada com sucesso no chat {chat_id}.")
-                except Exception as e:
-                    logger.warning(f"Erro ao apagar mensagem {message_id} no chat {chat_id}: {e}")
-        self.message_history.clear() # Limpa o histórico após tentar apagar todas as mensagens
-        logger.info("Histórico de mensagens limpo para todos os chats.")
+        data = query.data.split('|')
+        
+        if len(data) == 2:
+            # Callback de serviço (modelo|serviço)
+            modelo = data[0]
+            servico = data[1]
+            
+            variacoes = self.obter_variacoes(modelo, servico)
+            
+            if variacoes:
+                # Se há múltiplas variações, oferece como botões
+                keyboard = [
+                    [InlineKeyboardButton(v.title(), callback_data=f"{modelo}|{servico}|{v}")]
+                    for v in variacoes
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(
+                    text=f"Qual tipo de {servico} você precisa?",
+                    reply_markup=reply_markup
+                )
+            else:
+                resposta = self.buscar_preco(modelo, servico)
+                await query.edit_message_text(text=resposta)
+        
+        elif len(data) == 3:
+            # Callback de variação (modelo|serviço|variacao)
+            modelo = data[0]
+            servico = data[1]
+            variacao = data[2]
+            
+            resposta = self.buscar_preco(modelo, servico, variacao)
+            await query.edit_message_text(text=resposta)
 
     def run(self):
         application = ApplicationBuilder().token(self.token).build()
-        
-        # Verifica se o JobQueue está disponível antes de tentar usá-lo
-        if application.job_queue:
-            job_queue = application.job_queue
-            # Agendar a tarefa de limpeza para rodar todos os dias às 21:52 (para teste)
-            job_queue.run_daily(self._clear_history_job, time(hour=21, minute=52), days=(0, 1, 2, 3, 4, 5, 6), data=None, name='daily_clear_history')
-            logger.info("Tarefa de limpeza diária agendada para as 21:40.")
-        else:
-            logger.warning("AVISO: JobQueue não está configurado. A limpeza automática de histórico não será ativada.")
-            logger.warning("Para ativar, instale python-telegram-bot com o extra 'job-queue':")
-            logger.warning("pip install \"python-telegram-bot[job-queue]\"")
 
         application.add_handler(CommandHandler("preco", self.preco_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.responder_message))
         application.add_handler(CallbackQueryHandler(self.button_callback_handler))
 
-        logger.info("Bot rodando... 🚀")
+        print("Bot rodando... 🚀")
         application.run_polling()
 
 if __name__ == "__main__":
     TOKEN = os.getenv("TOKEN")
     if not TOKEN:
-        logger.error("ERRO: A variável de ambiente 'TOKEN' não está definida.")
+        print("ERRO: A variável de ambiente 'TOKEN' não está definida.")
         exit(1)
     
     # Cria um arquivo de exemplo 'precos.xlsx' se não existir
     if not os.path.exists("precos.xlsx"):
-        logger.info("Criando arquivo 'precos.xlsx' de exemplo...")
+        print("Criando arquivo 'precos.xlsx' de exemplo...")
         dados_exemplo = {
-            "Modelo": ["iPhone 11", "iPhone 11", "iPhone 12", "iPhone 12", "iPhone 13"],
-            "Servico": ["Tela", "Bateria", "Tela", "Conector", "Tela"],
-            "PrecoVista": [500.00, 250.00, 700.00, 300.00, 900.00],
-            "PrecoCartao": [550.00, 280.00, 780.00, 330.00, 990.00]
+            "Modelo": [
+                "Samsung A12", "Samsung A12", "Samsung A12", "Samsung A12",
+                "iPhone 8", "iPhone 8",
+                "iPhone X", "iPhone X",
+                "Samsung A12", "Samsung A12",
+                "iPhone 8", "iPhone 8",
+                "iPhone X", "iPhone X"
+            ],
+            "Servico": [
+                "Tela", "Tela", "Bateria", "Bateria",
+                "Tela", "Tela",
+                "Tela", "Tela",
+                "Conector", "Conector",
+                "Bateria", "Bateria",
+                "Bateria", "Bateria"
+            ],
+            "Variacao": [
+                "com aro", "sem aro", "com aro", "sem aro",
+                "padrão", "padrão",
+                "1ª linha", "oled",
+                "com aro", "sem aro",
+                "padrão", "padrão",
+                "padrão", "padrão"
+            ],
+            "PrecoVista": [
+                200.00, 170.00, 150.00, 150.00,
+                400.00, 400.00,
+                300.00, 500.00,
+                100.00, 100.00,
+                200.00, 200.00,
+                250.00, 250.00
+            ],
+            "PrecoCartao": [
+                220.00, 187.00, 165.00, 165.00,
+                440.00, 440.00,
+                330.00, 550.00,
+                110.00, 110.00,
+                220.00, 220.00,
+                275.00, 275.00
+            ]
         }
         df_exemplo = pd.DataFrame(dados_exemplo)
         df_exemplo.to_excel("precos.xlsx", index=False)
-        logger.info("Arquivo 'precos.xlsx' de exemplo criado com sucesso.")
+        print("Arquivo 'precos.xlsx' de exemplo criado com sucesso.")
 
     bot = BudgetBot(TOKEN)
     bot.run()
