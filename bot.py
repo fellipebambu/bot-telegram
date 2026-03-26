@@ -171,7 +171,7 @@ class BudgetBot:
         chat_id = query.message.chat_id
         await query.answer() # Responde ao callback para remover o estado de 'carregando' do botão
 
-        data = query.data.split('|')
+        data = query.data.split("|")
         modelo = data[0]
         servico = data[1]
 
@@ -192,14 +192,21 @@ class BudgetBot:
 
     def run(self):
         application = ApplicationBuilder().token(self.token).build()
-        job_queue = application.job_queue
+        
+        # Verifica se o JobQueue está disponível antes de tentar usá-lo
+        if application.job_queue:
+            job_queue = application.job_queue
+            # Agendar a tarefa de limpeza para rodar todos os dias às 23:00
+            job_queue.run_daily(self._clear_history_job, time(hour=23, minute=0), days=(0, 1, 2, 3, 4, 5, 6), data=None, name='daily_clear_history')
+            print("Tarefa de limpeza diária agendada para as 23:00.")
+        else:
+            print("AVISO: JobQueue não está configurado. A limpeza automática de histórico não será ativada.")
+            print("Para ativar, instale python-telegram-bot com o extra 'job-queue':")
+            print("pip install \"python-telegram-bot[job-queue]\"")
 
         application.add_handler(CommandHandler("preco", self.preco_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.responder_message))
         application.add_handler(CallbackQueryHandler(self.button_callback_handler))
-
-        # Agendar a tarefa de limpeza para rodar todos os dias às 23:00
-        job_queue.run_daily(self._clear_history_job, time(hour=23, minute=0), days=(0, 1, 2, 3, 4, 5, 6), data=None, name='daily_clear_history')
 
         print("Bot rodando... 🚀")
         application.run_polling()
