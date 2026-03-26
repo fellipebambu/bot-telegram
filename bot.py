@@ -11,6 +11,14 @@ from telegram.ext import (
     JobQueue
 )
 from datetime import time
+import logging
+
+# Configurar logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 class BudgetBot:
     def __init__(self, token, excel_file="precos.xlsx"):
@@ -20,7 +28,7 @@ class BudgetBot:
         self.modelos_disponiveis = self.tabela["Modelo"].unique().tolist()
         self.servicos_disponiveis = self.tabela["Servico"].unique().tolist()
         self.message_history = {} # Dicionário para armazenar IDs de mensagens por chat_id
-        print(f"Bot inicializado. Modelos: {self.modelos_disponiveis}, Serviços: {self.servicos_disponiveis}")
+        logger.info(f"Bot inicializado. Modelos: {self.modelos_disponiveis}, Serviços: {self.servicos_disponiveis}")
 
     def _carregar_tabela(self):
         try:
@@ -30,10 +38,10 @@ class BudgetBot:
             tabela["Servico"] = tabela["Servico"].str.lower().str.strip()
             return tabela
         except FileNotFoundError:
-            print(f"ERRO: O arquivo \'{self.excel_file}\' não foi encontrado.")
+            logger.error(f"ERRO: O arquivo \'{self.excel_file}\' não foi encontrado.")
             exit(1) # Encerra o bot se a tabela não for encontrada
         except Exception as e:
-            print(f"ERRO ao carregar a tabela: {e}")
+            logger.error(f"ERRO ao carregar a tabela: {e}")
             exit(1)
 
     def buscar_preco(self, modelo, servico):
@@ -65,17 +73,13 @@ class BudgetBot:
                 break
         
         # Busca por serviços (apenas se um modelo foi encontrado ou se for uma busca geral)
-        # Se um modelo foi encontrado, podemos querer oferecer serviços para ele.
-        # Se nenhum modelo for encontrado, ainda podemos interpretar um serviço se for uma consulta autônoma.
         if modelo_encontrado:
-            # Busca serviços específicos para o modelo encontrado
             servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo_encontrado]["Servico"].unique().tolist()
             for servico in servicos_para_modelo:
                 if servico in texto:
                     servico_encontrado = servico
                     break
         else:
-            # Se nenhum modelo foi encontrado, tenta encontrar um serviço de forma geral
             for servico in self.servicos_disponiveis:
                 if servico in texto:
                     servico_encontrado = servico
@@ -87,6 +91,7 @@ class BudgetBot:
         if chat_id not in self.message_history:
             self.message_history[chat_id] = []
         self.message_history[chat_id].append(message_id)
+        logger.debug(f"Mensagem {message_id} rastreada para o chat {chat_id}")
 
     async def preco_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = update.message.chat_id
@@ -107,7 +112,6 @@ class BudgetBot:
             sent_message = await update.message.reply_text(resposta)
             await self._track_message(chat_id, sent_message.message_id)
         elif modelo and not servico:
-            # Se apenas o modelo foi encontrado, oferece os serviços como botões
             servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo]["Servico"].unique().tolist()
             if servicos_para_modelo:
                 keyboard = [
@@ -124,7 +128,6 @@ class BudgetBot:
                 sent_message = await update.message.reply_text(f"Não encontrei serviços disponíveis para o {modelo.title()}.")
                 await self._track_message(chat_id, sent_message.message_id)
         else:
-            # Construindo a mensagem de erro de forma mais robusta
             modelos_str = ", ".join([m.title() for m in self.modelos_disponiveis])
             servicos_str = ", ".join([s.title() for s in self.servicos_disponiveis])
             sent_message = await update.message.reply_text(
@@ -146,7 +149,6 @@ class BudgetBot:
             sent_message = await update.message.reply_text(resposta)
             await self._track_message(chat_id, sent_message.message_id)
         elif modelo and not servico:
-            # Se apenas o modelo foi encontrado, oferece os serviços como botões
             servicos_para_modelo = self.tabela[self.tabela["Modelo"] == modelo]["Servico"].unique().tolist()
             if servicos_para_modelo:
                 keyboard = [
@@ -163,8 +165,7 @@ class BudgetBot:
                 sent_message = await update.message.reply_text(f"Não encontrei serviços disponíveis para o {modelo.title()}.")
                 await self._track_message(chat_id, sent_message.message_id)
         else:
-            # Ignora a mensagem se não conseguir interpretar modelo e serviço
-            return
+            return # Ignora a mensagem se não conseguir interpretar modelo e serviço
 
     async def button_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -180,15 +181,18 @@ class BudgetBot:
         await self._track_message(chat_id, sent_message.message_id)
 
     async def _clear_history_job(self, context: ContextTypes.DEFAULT_TYPE):
+        logger.info("Iniciando tarefa de limpeza de histórico...")
         bot = context.bot
         for chat_id, message_ids in self.message_history.items():
+            logger.info(f"Tentando apagar {len(message_ids)} mensagens no chat {chat_id}...")
             for message_id in message_ids:
                 try:
                     await bot.delete_message(chat_id=chat_id, message_id=message_id)
+                    logger.debug(f"Mensagem {message_id} apagada com sucesso no chat {chat_id}.")
                 except Exception as e:
-                    print(f"Erro ao apagar mensagem {message_id} no chat {chat_id}: {e}")
+                    logger.warning(f"Erro ao apagar mensagem {message_id} no chat {chat_id}: {e}")
         self.message_history.clear() # Limpa o histórico após tentar apagar todas as mensagens
-        print("Histórico de mensagens limpo para todos os chats.")
+        logger.info("Histórico de mensagens limpo para todos os chats.")
 
     def run(self):
         application = ApplicationBuilder().token(self.token).build()
@@ -196,30 +200,30 @@ class BudgetBot:
         # Verifica se o JobQueue está disponível antes de tentar usá-lo
         if application.job_queue:
             job_queue = application.job_queue
-            # Agendar a tarefa de limpeza para rodar todos os dias às 23:00
+            # Agendar a tarefa de limpeza para rodar todos os dias às 21:40 (para teste)
             job_queue.run_daily(self._clear_history_job, time(hour=21, minute=40), days=(0, 1, 2, 3, 4, 5, 6), data=None, name='daily_clear_history')
-            print("Tarefa de limpeza diária agendada para as 23:00.")
+            logger.info("Tarefa de limpeza diária agendada para as 21:40.")
         else:
-            print("AVISO: JobQueue não está configurado. A limpeza automática de histórico não será ativada.")
-            print("Para ativar, instale python-telegram-bot com o extra 'job-queue':")
-            print("pip install \"python-telegram-bot[job-queue]\"")
+            logger.warning("AVISO: JobQueue não está configurado. A limpeza automática de histórico não será ativada.")
+            logger.warning("Para ativar, instale python-telegram-bot com o extra 'job-queue':")
+            logger.warning("pip install \"python-telegram-bot[job-queue]\"")
 
         application.add_handler(CommandHandler("preco", self.preco_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.responder_message))
         application.add_handler(CallbackQueryHandler(self.button_callback_handler))
 
-        print("Bot rodando... 🚀")
+        logger.info("Bot rodando... 🚀")
         application.run_polling()
 
 if __name__ == "__main__":
     TOKEN = os.getenv("TOKEN")
     if not TOKEN:
-        print("ERRO: A variável de ambiente 'TOKEN' não está definida.")
+        logger.error("ERRO: A variável de ambiente 'TOKEN' não está definida.")
         exit(1)
     
     # Cria um arquivo de exemplo 'precos.xlsx' se não existir
     if not os.path.exists("precos.xlsx"):
-        print("Criando arquivo 'precos.xlsx' de exemplo...")
+        logger.info("Criando arquivo 'precos.xlsx' de exemplo...")
         dados_exemplo = {
             "Modelo": ["iPhone 11", "iPhone 11", "iPhone 12", "iPhone 12", "iPhone 13"],
             "Servico": ["Tela", "Bateria", "Tela", "Conector", "Tela"],
@@ -228,7 +232,7 @@ if __name__ == "__main__":
         }
         df_exemplo = pd.DataFrame(dados_exemplo)
         df_exemplo.to_excel("precos.xlsx", index=False)
-        print("Arquivo 'precos.xlsx' de exemplo criado com sucesso.")
+        logger.info("Arquivo 'precos.xlsx' de exemplo criado com sucesso.")
 
     bot = BudgetBot(TOKEN)
     bot.run()
