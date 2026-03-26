@@ -197,7 +197,7 @@ class BudgetBot:
         if application.job_queue:
             job_queue = application.job_queue
             # Agendar a tarefa de limpeza para rodar todos os dias às 23:00
-            job_queue.run_daily(self._clear_history_job, time(hour=23, minute=0), days=(0, 1, 2, 3, 4, 5, 6), data=None, name='daily_clear_history')
+            job_queue.run_daily(self._clear_history_job, time(hour=21, minute=40), days=(0, 1, 2, 3, 4, 5, 6), data=None, name='daily_clear_history')
             print("Tarefa de limpeza diária agendada para as 23:00.")
         else:
             print("AVISO: JobQueue não está configurado. A limpeza automática de histórico não será ativada.")
