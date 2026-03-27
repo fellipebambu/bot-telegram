@@ -11,7 +11,8 @@ from telegram.ext import (
     ContextTypes,
     MessageHandler,
     CallbackQueryHandler,
-    filters
+    filters,
+    Defaults
 )
 
 # Configuração de log detalhada para depuração
@@ -230,12 +231,12 @@ class BudgetBot:
                 self.agendar_limpeza(context, query.message.chat_id, [u_msg_id, query.message.message_id])
 
     def run(self):
-        # Solução para o erro do Python 3.13 e JobQueue
+        # Configuração para versões modernas da biblioteca e Python 3.13
         application = ApplicationBuilder().token(self.token).build()
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.responder_message))
         application.add_handler(CallbackQueryHandler(self.button_handler))
         
-        logger.info("Bot rodando... 🚀")
+        logger.info("Bot rodando na versão mais recente (v21.10+) 🚀")
         application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
