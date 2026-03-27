@@ -28,7 +28,11 @@ class BudgetBot:
         self.excel_file = excel_file
         self.whitelist_file = whitelist_file
         self.tabela = self._carregar_tabela()
-        self.usuarios_autorizados = self._carregar_whitelist()
+        
+        # --- CONFIGURAÇÃO DE SEGURANÇA (WHITELIST) ---
+        # Adicione aqui os IDs dos usuários autorizados (o seu ID já está incluído)
+        self.ids_autorizados_fixos = [1129149570] 
+        self.usuarios_autorizados_arquivo = self._carregar_whitelist()
         
         # Inicializa listas vazias se a tabela falhar
         if self.tabela is not None and not self.tabela.empty:
@@ -39,7 +43,7 @@ class BudgetBot:
             self.servicos_disponiveis = []
             
         logger.info(f"Bot inicializado. Modelos: {len(self.modelos_disponiveis)}, Serviços: {len(self.servicos_disponiveis)}")
-        logger.info(f"Usuários autorizados: {len(self.usuarios_autorizados)}")
+        logger.info(f"Usuários autorizados (Fixo + Arquivo): {len(self.ids_autorizados_fixos) + len(self.usuarios_autorizados_arquivo)}")
 
     def _carregar_tabela(self):
         """Carrega a planilha Excel com tratamento de erro robusto"""
@@ -49,11 +53,8 @@ class BudgetBot:
                 return pd.DataFrame(columns=["Modelo", "Servico", "Variacao", "PrecoVista", "PrecoCartao"])
 
             tabela = pd.read_excel(self.excel_file)
-            
-            # Limpa nomes das colunas (remove espaços e converte para minúsculas para comparar)
             tabela.columns = [str(col).strip() for col in tabela.columns]
             
-            # Mapeamento flexível de colunas
             col_map = {
                 "Modelo": ["Modelo", "modelo", "MODELO", "Aparelho"],
                 "Servico": ["Servico", "Serviço", "servico", "serviço", "SERVICO"],
@@ -62,21 +63,18 @@ class BudgetBot:
                 "PrecoCartao": ["PrecoCartao", "Preço no Cartão", "Preço Cartão", "Preco Cartao", "Cartão"]
             }
 
-            # Tenta renomear as colunas encontradas para o padrão esperado
             for padrao, variantes in col_map.items():
                 for variante in variantes:
                     if variante in tabela.columns:
                         tabela.rename(columns={variante: padrao}, inplace=True)
                         break
 
-            # Verifica se as colunas essenciais existem
             colunas_obrigatorias = ["Modelo", "Servico", "PrecoVista", "PrecoCartao"]
             for col in colunas_obrigatorias:
                 if col not in tabela.columns:
                     logger.error(f"ERRO: Coluna '{col}' não encontrada na planilha!")
                     return pd.DataFrame(columns=["Modelo", "Servico", "Variacao", "PrecoVista", "PrecoCartao"])
 
-            # Padroniza os dados
             tabela["Modelo"] = tabela["Modelo"].astype(str).str.lower().str.strip()
             tabela["Servico"] = tabela["Servico"].astype(str).str.lower().str.strip()
             if "Variacao" in tabela.columns:
@@ -90,31 +88,21 @@ class BudgetBot:
             return pd.DataFrame(columns=["Modelo", "Servico", "Variacao", "PrecoVista", "PrecoCartao"])
 
     def _carregar_whitelist(self):
-        """Carrega a lista de usuários autorizados do arquivo JSON"""
+        """Carrega a lista de usuários autorizados do arquivo JSON (opcional)"""
         try:
             if os.path.exists(self.whitelist_file):
                 with open(self.whitelist_file, 'r') as f:
                     dados = json.load(f)
                     return dados.get("usuarios_autorizados", [])
-            else:
-                self._criar_whitelist_exemplo()
-                return []
+            return []
         except Exception as e:
             logger.error(f"ERRO ao carregar whitelist: {e}")
             return []
 
-    def _criar_whitelist_exemplo(self):
-        """Cria um arquivo de exemplo de whitelist"""
-        exemplo = {
-            "usuarios_autorizados": [{"id": 123456789, "nome": "Exemplo", "descricao": "Dono"}],
-            "comentario": "Adicione seu ID aqui."
-        }
-        with open(self.whitelist_file, 'w') as f:
-            json.dump(exemplo, f, indent=2, ensure_ascii=False)
-
     def usuario_autorizado(self, user_id):
-        ids_autorizados = [u["id"] for u in self.usuarios_autorizados]
-        return user_id in ids_autorizados
+        """Verifica se o usuário está na lista fixa ou no arquivo"""
+        ids_arquivo = [u["id"] for u in self.usuarios_autorizados_arquivo]
+        return user_id in self.ids_autorizados_fixos or user_id in ids_arquivo
 
     def buscar_preco(self, modelo, servico, variacao=None):
         filtro = (self.tabela["Modelo"] == modelo) & (self.tabela["Servico"] == servico)
@@ -231,7 +219,6 @@ class BudgetBot:
                 self.agendar_limpeza(context, query.message.chat_id, [u_msg_id, query.message.message_id])
 
     def run(self):
-        # Configuração para versões modernas da biblioteca e Python 3.13
         application = ApplicationBuilder().token(self.token).build()
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.responder_message))
         application.add_handler(CallbackQueryHandler(self.button_handler))
