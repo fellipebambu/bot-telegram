@@ -30,12 +30,12 @@ class BudgetBot:
         self.tabela = self._carregar_tabela()
         
         # --- CONFIGURAÇÃO DE SEGURANÇA (WHITELIST) ---
-        # Adicione aqui os IDs dos usuários autorizados (o seu ID já está incluído)
         self.ids_autorizados_fixos = [1129149570] 
         self.usuarios_autorizados_arquivo = self._carregar_whitelist()
         
         # Inicializa listas vazias se a tabela falhar
         if self.tabela is not None and not self.tabela.empty:
+            # Ordena por tamanho do nome (maior primeiro) para busca exata ser mais precisa
             self.modelos_disponiveis = sorted(self.tabela["Modelo"].unique().tolist(), key=len, reverse=True)
             self.servicos_disponiveis = self.tabela["Servico"].unique().tolist()
         else:
@@ -120,45 +120,50 @@ class BudgetBot:
             )
         return f"❌ Não encontrei preço para {modelo.title()} e {servico.title()}."
 
-    def interpretar_texto_avancado(self, texto):
-        """Nova lógica de interpretação que suporta buscas parciais"""
+    def interpretar_texto_ultra_flexivel(self, texto):
+        """Busca ultra flexível que prioriza nomes longos mas aceita qualquer parte do nome"""
         texto = texto.lower().strip()
         
-        # 1. Tenta encontrar modelo e serviço exatos (ou o modelo maior primeiro)
-        modelo_enc = None
+        # 1. Identifica o serviço se estiver presente no texto
         servico_enc = None
-
-        for m in self.modelos_disponiveis:
-            if m in texto:
-                modelo_enc = m
-                break
-        
-        if modelo_enc:
-            servicos_m = self.tabela[self.tabela["Modelo"] == modelo_enc]["Servico"].unique().tolist()
-            for s in servicos_m:
-                if s in texto:
-                    servico_enc = s
-                    break
-            return modelo_enc, servico_enc, []
-
-        # 2. Se não encontrou modelo exato, busca por palavras-chave
-        # Remove palavras comuns de serviço para focar no modelo
         palavras_servico = ["tela", "bateria", "conector", "vidro", "tampa", "câmera", "camera"]
-        texto_modelo = texto
         for p in palavras_servico:
-            texto_modelo = texto_modelo.replace(p, "").strip()
             if p in texto:
                 servico_enc = p
+                break
 
-        # Busca modelos que contêm o texto digitado
-        modelos_sugeridos = [m for m in self.modelos_disponiveis if texto_modelo in m]
+        # 2. Limpa o texto para focar no modelo (remove o serviço do texto de busca)
+        texto_busca_modelo = texto
+        if servico_enc:
+            texto_busca_modelo = texto_busca_modelo.replace(servico_enc, "").strip()
+
+        # 3. Busca modelos que contêm o texto digitado
+        # Ex: Se digitar "G22", vai encontrar "Moto G22"
+        modelos_encontrados = [m for m in self.modelos_disponiveis if texto_busca_modelo in m]
         
-        # Se encontrou apenas um modelo por palavra-chave, assume que é ele
-        if len(modelos_sugeridos) == 1:
-            return modelos_sugeridos[0], servico_enc, []
+        # 4. Se encontrou apenas um modelo, retorna ele
+        if len(modelos_encontrados) == 1:
+            return modelos_encontrados[0], servico_enc, []
         
-        # Se encontrou vários, retorna a lista para sugestão
-        return None, servico_enc, modelos_sugeridos
+        # 5. Se encontrou vários, retorna a lista para sugestão
+        if len(modelos_encontrados) > 1:
+            return None, servico_enc, modelos_encontrados
+        
+        # 6. Caso não tenha encontrado nada com o texto completo, tenta por palavras individuais (se houver mais de uma)
+        palavras = texto_busca_modelo.split()
+        if len(palavras) > 1:
+            # Busca modelos que contêm TODAS as palavras digitadas (em qualquer ordem)
+            modelos_multi = []
+            for m in self.modelos_disponiveis:
+                if all(palavra in m for palavra in palavras):
+                    modelos_multi.append(m)
+            
+            if len(modelos_multi) == 1:
+                return modelos_multi[0], servico_enc, []
+            elif len(modelos_multi) > 1:
+                return None, servico_enc, modelos_multi
+
+        return None, servico_enc, []
 
     def obter_variacoes(self, modelo, servico):
         if "Variacao" not in self.tabela.columns:
@@ -189,9 +194,9 @@ class BudgetBot:
             return
 
         texto = update.message.text
-        modelo, servico, sugestoes = self.interpretar_texto_avancado(texto)
+        modelo, servico, sugestoes = self.interpretar_texto_ultra_flexivel(texto)
 
-        # Caso 1: Modelo e Serviço encontrados (ou modelo único sugerido)
+        # Caso 1: Modelo e Serviço encontrados
         if modelo and servico:
             vars = self.obter_variacoes(modelo, servico)
             if vars:
@@ -202,7 +207,7 @@ class BudgetBot:
                 sent = await update.message.reply_text(resp)
                 self.agendar_limpeza(context, update.effective_chat.id, [update.message.message_id, sent.message_id])
         
-        # Caso 2: Modelo encontrado mas serviço não (ou modelo único sugerido)
+        # Caso 2: Modelo encontrado mas serviço não
         elif modelo:
             servicos_m = self.tabela[self.tabela["Modelo"] == modelo]["Servico"].unique().tolist()
             if servicos_m:
@@ -211,14 +216,14 @@ class BudgetBot:
 
         # Caso 3: Vários modelos sugeridos por palavra-chave
         elif sugestoes:
-            # Limita a 10 sugestões para não poluir o chat
-            sugestoes = sugestoes[:10]
+            # Limita a 12 sugestões para não poluir o chat
+            sugestoes = sorted(sugestoes)[:12]
             keyboard = [[InlineKeyboardButton(m.title(), callback_data=f"M|{m}|{servico if servico else 'none'}|initial|{update.message.message_id}")] for m in sugestoes]
-            await update.message.reply_text(f"Encontrei esses modelos. Qual você quis dizer?", reply_markup=InlineKeyboardMarkup(keyboard))
+            await update.message.reply_text(f"Encontrei esses modelos com sua busca. Qual você quis dizer?", reply_markup=InlineKeyboardMarkup(keyboard))
         
         # Caso 4: Nada encontrado
         else:
-            sent = await update.message.reply_text("❌ Não consegui encontrar esse modelo ou serviço. Tente digitar de outra forma (ex: 'tela tecno spark').")
+            sent = await update.message.reply_text("❌ Não encontrei esse modelo. Tente digitar de outra forma (ex: apenas 'G22' ou 'Spark 10').")
             self.agendar_limpeza(context, update.effective_chat.id, [update.message.message_id, sent.message_id])
 
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -230,12 +235,10 @@ class BudgetBot:
 
         await query.answer()
         data = query.data.split('|')
-        # Formato: TIPO | MOD | SERV | EXTRA | USER_MSG_ID
         tipo, mod, serv, extra, u_msg_id = data[0], data[1], data[2], data[3], int(data[4])
         
         if tipo == "M": # Seleção de Modelo sugerido
             if serv != "none":
-                # Já temos o serviço, agora verifica variações
                 vars = self.obter_variacoes(mod, serv)
                 if vars:
                     keyboard = [[InlineKeyboardButton(v.title(), callback_data=f"V|{mod}|{serv}|{v}|{u_msg_id}")] for v in vars]
@@ -245,7 +248,6 @@ class BudgetBot:
                     await query.edit_message_text(text=resp)
                     self.agendar_limpeza(context, query.message.chat_id, [u_msg_id, query.message.message_id])
             else:
-                # Não temos o serviço, pergunta agora
                 servicos_m = self.tabela[self.tabela["Modelo"] == mod]["Servico"].unique().tolist()
                 keyboard = [[InlineKeyboardButton(s.title(), callback_data=f"S|{mod}|{s}|initial|{u_msg_id}")] for s in servicos_m]
                 await query.edit_message_text(text=f"Qual serviço você precisa para o {mod.title()}?", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -269,7 +271,7 @@ class BudgetBot:
         application = ApplicationBuilder().token(self.token).build()
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.responder_message))
         application.add_handler(CallbackQueryHandler(self.button_handler))
-        logger.info("Bot rodando com Busca Inteligente v6! 🚀")
+        logger.info("Bot rodando com Busca Ultra Flexível v7! 🚀")
         application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
